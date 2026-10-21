@@ -1,0 +1,144 @@
+name: Deploy demo
+
+# Manual workflow: deploys (or destroys) the Secure Key Release demo in your Azure subscription.
+#
+# Required repository secrets:
+#   AZURE_TENANT_ID        Microsoft Entra tenant id
+#   AZURE_SUBSCRIPTION_ID  target subscription id
+#   AZURE_CLIENT_ID        app registration / service principal (client) id
+# Authentication (pick one):
+#   - OIDC federated credential (recommended): add nothing else, and trust this repository on the app registration.
+#   - Client secret: also set AZURE_CLIENT_SECRET.
+# Optional secret:
+#   SSH_PUBLIC_KEY         public key for the VM admin user. If missing, a throw-away key is generated (no SSH access).
+#
+# The service principal needs Owner on the subscription (or Contributor + User Access Administrator), because the
+# template creates role assignments.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Deploy or destroy the demo
+        type: choice
+        options: [deploy, destroy]
+        default: deploy
+      resource_group:
+        description: Resource group name
+        type: string
+        default: rg-skr-demo
+      location:
+        description: Azure region (must offer DCasv5 confidential VMs, and you need quota)
+        type: string
+        default: westeurope
+      vm_size:
+        description: Confidential VM size
+        type: string
+        default: Standard_DC2as_v5
+      allowed_source_ip:
+        description: Your public IP or CIDR allowed to reach SSH (22) and the service (8080). Required for deploy.
+        type: string
+        required: false
+      reader_object_id:
+        description: Optional. Entra object id of the user who will run the client with --vault (read access to the key)
+        type: string
+        required: false
+
+permissions:
+  id-token: write # required for OIDC login
+  contents: read
+
+concurrency:
+  group: skr-demo-${{ inputs.resource_group }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: inputs.action == 'deploy'
+    runs-on: ubuntu-latest
+    env:
+      RESOURCE_GROUP: ${{ inputs.resource_group }}
+      LOCATION: ${{ inputs.location }}
+      VM_SIZE: ${{ inputs.vm_size }}
+      ALLOWED_SOURCE_IP: ${{ inputs.allowed_source_ip }}
+      READER_OBJECT_ID: ${{ inputs.reader_object_id }}
+      SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate inputs
+        run: |
+          if [ -z "$ALLOWED_SOURCE_IP" ]; then
+            echo "::error::allowed_source_ip is required for a deployment (the NSG only opens 22/8080 to that address)."
+            exit 1
+          fi
+
+      - uses: azure/login@v2
+        with:
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+
+      - name: Prepare SSH key
+        run: |
+          if [ -z "$SSH_PUBLIC_KEY" ]; then
+            echo "No SSH_PUBLIC_KEY secret: generating a throw-away key (the VM will not be reachable over SSH)."
+            ssh-keygen -t ed25519 -N '' -f "$RUNNER_TEMP/id_ed25519" -C skr-demo >/dev/null
+            SSH_PUBLIC_KEY="$(cat "$RUNNER_TEMP/id_ed25519.pub")"
+          fi
+          echo "SSH_PUBLIC_KEY_VALUE=$SSH_PUBLIC_KEY" >> "$GITHUB_ENV"
+
+      - name: Deploy infrastructure
+        id: deploy
+        run: |
+          az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output none
+          az deployment group create \
+            --name "skr-demo-${GITHUB_RUN_ID}" \
+            --resource-group "$RESOURCE_GROUP" \
+            --template-file infra/main.bicep \
+            --parameters location="$LOCATION" vmSize="$VM_SIZE" sshPublicKey="$SSH_PUBLIC_KEY_VALUE" \
+                         allowedSourceIp="$ALLOWED_SOURCE_IP" readerObjectId="$READER_OBJECT_ID" \
+            --query properties.outputs -o json > outputs.json
+          echo "vault=$(jq -r .vaultName.value outputs.json)" >> "$GITHUB_OUTPUT"
+          echo "key=$(jq -r .keyName.value outputs.json)" >> "$GITHUB_OUTPUT"
+          echo "url=$(jq -r .serviceUrl.value outputs.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Summary
+        env:
+          VAULT: ${{ steps.deploy.outputs.vault }}
+          KEY: ${{ steps.deploy.outputs.key }}
+          URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          {
+            echo "## Demo deployed"
+            echo
+            echo "- Key Vault: \`$VAULT\` (key \`$KEY\`)"
+            echo "- Service: $URL"
+            echo
+            echo "The VM needs about 5 more minutes to install Node.js and build the attestation helper. Then, from your machine:"
+            echo
+            echo '```'
+            echo "node client/demo.js $URL --vault $VAULT --key $KEY"
+            echo '```'
+            echo
+            echo "Run this workflow again with **action = destroy** when you are done (the VM costs money)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  destroy:
+    if: inputs.action == 'destroy'
+    runs-on: ubuntu-latest
+    env:
+      RESOURCE_GROUP: ${{ inputs.resource_group }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+
+      - name: Destroy and purge the vault
+        run: bash ./scripts/destroy.sh "$RESOURCE_GROUP"

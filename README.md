@@ -110,6 +110,26 @@ Tear everything down (deletes the resource group **and purges** the soft-deleted
 > **Cost:** one `Standard_DC2as_v5` VM, a Premium Key Vault with one HSM key and a Standard public IP.
 > Roughly a few dollars per day while it runs. Destroy it when you are done.
 
+## Deploy from GitHub Actions
+
+`.github/workflows/deploy.yml` (manual `workflow_dispatch`) deploys or destroys the demo with an `action` input.
+
+Repository secrets to create (Settings → Secrets and variables → Actions):
+
+| Secret | Required | Value |
+| --- | --- | --- |
+| `AZURE_TENANT_ID` | yes | Entra tenant id |
+| `AZURE_SUBSCRIPTION_ID` | yes | Target subscription id |
+| `AZURE_CLIENT_ID` | yes | Client id of the app registration / service principal |
+| `AZURE_CLIENT_SECRET` | no | Only if you authenticate with a client secret instead of OIDC |
+| `SSH_PUBLIC_KEY` | no | Public key for the VM admin user (otherwise a throw-away key is generated and SSH is unavailable) |
+
+OIDC is recommended: add a federated credential on the app registration for this repository
+(`repo:<owner>/<repo>:ref:refs/heads/<branch>`), and leave `AZURE_CLIENT_SECRET` unset. The principal needs
+**Owner** on the subscription (or Contributor + User Access Administrator) because the template creates role
+assignments. Run the workflow with your public IP in `allowed_source_ip`, then use the client command shown in the
+run summary. Run it again with `action = destroy` to delete everything and purge the vault.
+
 ## Repository layout
 
 ```
@@ -121,6 +141,7 @@ client/demo.js    Demo client (runs on your machine)
 infra/            Bicep template + cloud-init for the VM
 tools/build-skr.sh  Builds Microsoft's AzureAttestSKR helper (pinned commit)
 scripts/          deploy / destroy (PowerShell and Bash)
+.github/workflows/deploy.yml  GitHub Actions deploy / destroy
 ```
 
 ## How the key is exported
