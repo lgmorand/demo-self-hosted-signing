@@ -1,5 +1,7 @@
 name: Deploy demo
 
+# WARNING: DEMO ONLY. No support, not intended for production. This creates billable Azure resources.
+
 # Manual workflow: deploys (or destroys) the Secure Key Release demo in your Azure subscription.
 #
 # Required repository secrets:
@@ -112,6 +114,8 @@ jobs:
         run: |
           {
             echo "## Demo deployed"
+            echo
+            echo "> **Warning:** demo only, no support, not for production."
             echo
             echo "- Key Vault: \`$VAULT\` (key \`$KEY\`)"
             echo "- Service: $URL"

@@ -3,6 +3,8 @@
 # Usage: ./scripts/deploy.sh [resource-group] [location]
 set -euo pipefail
 
+echo "WARNING: DEMO ONLY - no support, not for production. This creates billable Azure resources; delete them with scripts/destroy.sh." >&2
+
 RESOURCE_GROUP="${1:-rg-skr-demo}"
 LOCATION="${2:-westeurope}"
 VM_SIZE="${VM_SIZE:-Standard_DC2as_v5}"
