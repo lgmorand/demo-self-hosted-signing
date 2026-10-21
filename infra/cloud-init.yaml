@@ -1,0 +1,66 @@
+#cloud-config
+# Rendered by infra/main.bicep (the @@TOKENS@@ are replaced at deployment time).
+package_update: false
+
+write_files:
+  - path: /opt/token-service/server.js
+    encoding: b64
+    permissions: '0644'
+    content: @@SERVER_JS@@
+  - path: /opt/token-service/package.json
+    encoding: b64
+    permissions: '0644'
+    content: @@PACKAGE_JSON@@
+  - path: /opt/token-service/lib/jwt.js
+    encoding: b64
+    permissions: '0644'
+    content: @@JWT_JS@@
+  - path: /opt/token-service/lib/key-cache.js
+    encoding: b64
+    permissions: '0644'
+    content: @@KEY_CACHE_JS@@
+  - path: /opt/token-service/lib/skr-key-provider.js
+    encoding: b64
+    permissions: '0644'
+    content: @@SKR_PROVIDER_JS@@
+  - path: /opt/skr-build/build-skr.sh
+    encoding: b64
+    permissions: '0755'
+    content: @@BUILD_SKR_SH@@
+  - path: /etc/token-service.env
+    permissions: '0644'
+    content: |
+      PORT=8080
+      KEY_URL=@@KEY_URL@@
+      ATTESTATION_URL=@@ATTESTATION_URL@@
+      IMDS_CLIENT_ID=@@IDENTITY_CLIENT_ID@@
+      TOKEN_ISSUER=https://token-service.demo
+      TOKEN_AUDIENCE=demo-api
+      TOKEN_TTL_SECONDS=300
+      KEY_CACHE_TTL_SECONDS=3600
+      SKR_BINARY=/opt/skr/AzureAttestSKR
+      SKR_WORKDIR=/var/lib/token-service
+  - path: /etc/systemd/system/token-service.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Demo token service (Key Vault Secure Key Release)
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      EnvironmentFile=/etc/token-service.env
+      WorkingDirectory=/var/lib/token-service
+      ExecStart=/usr/bin/node /opt/token-service/server.js
+      Restart=always
+      RestartSec=10
+      # The attestation helper needs the vTPM (/dev/tpmrm0), so the demo runs as root.
+      # In production, run as a dedicated user that is a member of the "tss" group.
+      NoNewPrivileges=true
+      ProtectHome=true
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  - [ bash, -c, 'exec > >(tee -a /var/log/token-service-setup.log) 2>&1; set -eux; mkdir -p /var/lib/token-service; curl -fsSL https://deb.nodesource.com/setup_22.x | bash -; DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs; /opt/skr-build/build-skr.sh; systemctl daemon-reload; systemctl enable --now token-service.service; echo SETUP-COMPLETE' ]

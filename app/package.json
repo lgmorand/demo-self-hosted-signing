@@ -1,0 +1,14 @@
+{
+  "name": "skr-token-service",
+  "version": "1.0.0",
+  "description": "Demo web service that releases a signing key from Azure Key Vault (Secure Key Release), caches it in memory and signs JWTs.",
+  "private": true,
+  "main": "server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/"
+  }
+}
