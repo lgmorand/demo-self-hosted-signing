@@ -1,5 +1,20 @@
 # Sign tokens with a Key Vault key — without signing in Key Vault
 
+> [!CAUTION]
+> ## ⚠️ DEMO ONLY — NOT FOR PRODUCTION ⚠️
+>
+> This repository is a **demonstration**. It is provided **as is**, **without any support, warranty or
+> maintenance**, and it is **not designed, hardened or reviewed for production use**.
+>
+> - Do **not** deploy it in a production subscription or reuse its code for real workloads without your own security review.
+> - Known demo shortcuts: the service runs as **root**, endpoints (including `/logs`) are **unauthenticated**, the
+>   traffic is plain **HTTP**, Key Vault **purge protection is off**, and the release policy is not pinned to a
+>   specific VM measurement.
+> - The Secure Key Release helper is a patched build of a Microsoft sample, not a supported product.
+> - Deploying it creates billable Azure resources (Confidential VM, Premium Key Vault). **You are responsible for
+>   the costs** and for deleting the resources afterwards.
+> - No issue triage, fixes or answers are promised.
+
 Signing every token with a Key Vault `sign` call does not scale: each request pays a network round trip and
 counts against Key Vault's [service limits](https://learn.microsoft.com/azure/key-vault/general/service-limits).
 

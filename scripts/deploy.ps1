@@ -14,6 +14,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+Write-Warning 'DEMO ONLY: no support, not for production. This creates billable Azure resources; delete them with scripts/destroy.ps1.'
 $root = Split-Path -Parent $PSScriptRoot
 $stateDir = Join-Path $root '.demo'
 New-Item -ItemType Directory -Force $stateDir | Out-Null
