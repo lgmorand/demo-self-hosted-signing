@@ -215,6 +215,7 @@ var cloudInitReplacements = [
   { token: '@@SERVER_JS@@', value: loadFileAsBase64('../app/server.js') }
   { token: '@@JWT_JS@@', value: loadFileAsBase64('../app/lib/jwt.js') }
   { token: '@@KEY_CACHE_JS@@', value: loadFileAsBase64('../app/lib/key-cache.js') }
+  { token: '@@LOGGER_JS@@', value: loadFileAsBase64('../app/lib/logger.js') }
   { token: '@@SKR_PROVIDER_JS@@', value: loadFileAsBase64('../app/lib/skr-key-provider.js') }
   { token: '@@PACKAGE_JSON@@', value: loadFileAsBase64('../app/package.json') }
   { token: '@@BUILD_SKR_SH@@', value: loadFileAsBase64('../tools/build-skr.sh') }

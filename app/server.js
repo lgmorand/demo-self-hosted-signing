@@ -5,11 +5,10 @@ const crypto = require('node:crypto');
 const { sign, verify, JwtError } = require('./lib/jwt');
 const { KeyCache } = require('./lib/key-cache');
 const { createSkrKeyProvider } = require('./lib/skr-key-provider');
+const { Logger } = require('./lib/logger');
 
 const RESERVED_CLAIMS = new Set(['iss', 'aud', 'sub', 'exp', 'iat', 'nbf', 'jti']);
 const MAX_BODY_BYTES = 16 * 1024;
-
-const log = (event, fields = {}) => console.log(JSON.stringify({ time: new Date().toISOString(), event, ...fields }));
 
 function readConfig(env = process.env) {
   const required = (name) => {
@@ -32,7 +31,7 @@ function readConfig(env = process.env) {
   };
 }
 
-function createApp({ keyCache, config }) {
+function createApp({ keyCache, config, logger = new Logger() }) {
   const counters = { tokensIssued: 0, tokensVerified: 0, verificationFailures: 0 };
   const startedAt = Date.now();
 
@@ -66,14 +65,32 @@ function createApp({ keyCache, config }) {
 
   const bearer = (req) => /^Bearer (.+)$/i.exec(req.headers.authorization ?? '')?.[1];
 
-  const verifyToken = async (token) => {
+  const verifyToken = async (token, via) => {
     const { publicJwk } = await keyCache.get();
-    return verify(token, publicJwk, { issuer: config.issuer, audience: config.audience });
+    try {
+      const result = verify(token, publicJwk, { issuer: config.issuer, audience: config.audience });
+      logger.log('token_verified', { via, sub: result.claims.sub, kid: result.header.kid, jti: result.claims.jti });
+      return result;
+    } catch (error) {
+      if (error instanceof JwtError) logger.log('token_rejected', { via, reason: error.message });
+      throw error;
+    }
   };
 
   const routes = {
     'GET /healthz': async (req, res) => sendJson(res, 200, { status: 'ok' }),
 
+    // Recent log entries (secrets are never logged). ?limit=100&event=token_issued,key_loaded&after=<seq>
+    'GET /logs': async (req, res) => {
+      const query = new URL(req.url, 'http://localhost').searchParams;
+      const limit = Number(query.get('limit') ?? 100);
+      const entries = logger.entries({
+        limit: Number.isFinite(limit) ? limit : 100,
+        event: query.get('event') || undefined,
+        after: Number(query.get('after') ?? 0) || 0,
+      });
+      sendJson(res, 200, { count: entries.length, entries });
+    },
     'GET /stats': async (req, res) =>
       sendJson(res, 200, {
         uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
@@ -95,6 +112,7 @@ function createApp({ keyCache, config }) {
       );
       const { privateKey, kid } = await keyCache.get();
       const now = Math.floor(Date.now() / 1000);
+      const jti = crypto.randomUUID();
       const token = sign(
         {
           ...extra,
@@ -104,18 +122,27 @@ function createApp({ keyCache, config }) {
           iat: now,
           nbf: now,
           exp: now + config.tokenTtlSeconds,
-          jti: crypto.randomUUID(),
+          jti,
         },
         { privateKey, kid },
       );
       counters.tokensIssued += 1;
+      logger.log('token_issued', {
+        sub: subject,
+        kid,
+        jti,
+        alg: 'ES256',
+        expiresIn: config.tokenTtlSeconds,
+        extraClaims: Object.keys(extra),
+        signedWith: 'in-memory key (no Key Vault call)',
+      });
       sendJson(res, 200, { token, tokenType: 'Bearer', expiresIn: config.tokenTtlSeconds, kid });
     },
 
     'POST /verify': async (req, res) => {
       const body = await readJson(req);
       try {
-        const { claims } = await verifyToken(body.token);
+        const { claims } = await verifyToken(body.token, 'POST /verify');
         counters.tokensVerified += 1;
         sendJson(res, 200, { valid: true, claims });
       } catch (error) {
@@ -128,7 +155,7 @@ function createApp({ keyCache, config }) {
     // Example of a protected API: requires a valid bearer token issued by this service.
     'GET /protected': async (req, res) => {
       try {
-        const { claims } = await verifyToken(bearer(req));
+        const { claims } = await verifyToken(bearer(req), 'GET /protected');
         counters.tokensVerified += 1;
         sendJson(res, 200, { message: `hello ${claims.sub}`, claims });
       } catch (error) {
@@ -142,13 +169,26 @@ function createApp({ keyCache, config }) {
 
   return http.createServer(async (req, res) => {
     const path = new URL(req.url, 'http://localhost').pathname;
+    const startedAt = Date.now();
+    // Polling /logs would flood the log with its own requests.
+    if (path !== '/logs') {
+      res.on('finish', () =>
+        logger.log('http_request', {
+          method: req.method,
+          path,
+          status: res.statusCode,
+          durationMs: Date.now() - startedAt,
+          remote: req.socket.remoteAddress,
+        }),
+      );
+    }
     const handler = routes[`${req.method} ${path}`];
     if (!handler) return sendJson(res, 404, { error: 'not found' });
     try {
       await handler(req, res);
     } catch (error) {
       const status = error.status ?? 500;
-      if (status >= 500) log('request_failed', { path, error: error.message });
+      if (status >= 500) logger.log('request_failed', { path, error: error.message });
       if (!res.headersSent) sendJson(res, status, { error: status >= 500 ? 'internal error' : error.message });
     }
   });
@@ -156,21 +196,24 @@ function createApp({ keyCache, config }) {
 
 async function main() {
   const config = readConfig();
+  const logger = new Logger();
   const keyCache = new KeyCache({
-    loadKey: createSkrKeyProvider(config.skr),
+    loadKey: createSkrKeyProvider({ ...config.skr, log: (event, fields) => logger.log(event, fields) }),
     ttlMs: config.keyCacheTtlSeconds * 1000,
-    log,
+    log: (event, fields) => logger.log(event, fields),
   });
-  const server = createApp({ keyCache, config });
-  server.listen(config.port, () => log('listening', { port: config.port }));
+  const server = createApp({ keyCache, config, logger });
+  server.listen(config.port, () =>
+    logger.log('listening', { port: config.port, issuer: config.issuer, audience: config.audience, keyCacheTtlSeconds: config.keyCacheTtlSeconds }),
+  );
 
   // Warm the cache so the first request does not pay for attestation + key release.
-  keyCache.get().catch((error) => log('warmup_failed', { error: error.message }));
+  keyCache.get().catch((error) => logger.log('warmup_failed', { error: error.message }));
 }
 
 if (require.main === module) {
   main().catch((error) => {
-    log('fatal', { error: error.message });
+    console.error(JSON.stringify({ event: 'fatal', error: error.message }));
     process.exit(1);
   });
 }

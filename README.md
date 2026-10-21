@@ -95,11 +95,29 @@ The script prints the exact command. The client:
 2. checks it has the same thumbprint as the public key *in Key Vault* (proves the service signs with the vault key);
 3. requests 200 tokens, verifies each one **locally with the public key only**;
 4. tampers with a token and shows it is rejected;
-5. prints `/stats`: 200 tokens signed, **1** key release call to Key Vault.
+5. prints `/stats`: 200 tokens signed, **1** key release call to Key Vault, then the key events from `/logs`.
 
-Useful endpoints on the service: `GET /healthz`, `GET /stats`, `GET /.well-known/jwks.json`,
+Useful endpoints on the service: `GET /healthz`, `GET /stats`, `GET /logs`, `GET /.well-known/jwks.json`,
 `POST /token` (`{"sub":"alice","claims":{"role":"reader"}}`), `POST /verify` (`{"token":"..."}`),
 `GET /protected` (`Authorization: Bearer <token>`).
+
+### Logs
+
+The service logs what it does, as JSON lines on stdout (`journalctl -u token-service -f`) and in an in-memory ring
+buffer of the last 1000 entries, served by `GET /logs` (`?limit=100`, `?event=token_issued,key_loaded`,
+`?after=<seq>` to follow new entries). Events:
+
+| Event | Meaning |
+| --- | --- |
+| `http_request` | Method, path, status, duration, remote address (`/logs` itself is not logged) |
+| `key_cache_miss` / `key_cache_hit` | The key had to be (re)loaded vs served from memory |
+| `skr_release_started` / `_succeeded` / `_failed` | Attestation + Key Vault release + vTPM decryption, with duration |
+| `key_loaded` | Key now in memory: `kid`, curve, TTL |
+| `token_issued` | Subject, `kid`, `jti`, expiry, names of extra claims (signed with the in-memory key) |
+| `token_verified` / `token_rejected` | Result of `/verify` and `/protected`, with the reason |
+
+Tokens, the private key and attestation tokens are never logged. `/logs` is unauthenticated like the other demo
+endpoints (the NSG limits access to your IP); protect it before reusing the service for anything real.
 
 Tear everything down (deletes the resource group **and purges** the soft-deleted vault):
 
@@ -137,6 +155,7 @@ app/              Zero-dependency Node.js token service (+ unit tests: cd app &&
   lib/jwt.js          ES256 sign/verify, JWK thumbprint
   lib/key-cache.js    In-memory key cache: single-flight refresh, TTL, stale-on-error
   lib/skr-key-provider.js  Calls the Secure Key Release helper
+  lib/logger.js       Structured logger + ring buffer behind GET /logs
 client/demo.js    Demo client (runs on your machine)
 infra/            Bicep template + cloud-init for the VM
 tools/build-skr.sh  Builds Microsoft's AzureAttestSKR helper (pinned commit)

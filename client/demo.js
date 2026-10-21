@@ -103,6 +103,11 @@ async function main() {
   const { json: stats } = await http('GET', `${service}/stats`);
   console.log(JSON.stringify(stats, null, 2).replace(/^/gm, '  '));
   ok(`${stats.tokensIssued} tokens signed, ${stats.keyCache.keyReleaseCalls} key release call(s) to Key Vault`);
+
+  step('Key events from GET /logs');
+  const { json: logs } = await http('GET', `${service}/logs?event=skr_release_started,skr_release_succeeded,skr_release_failed,key_cache_miss,key_loaded&limit=20`);
+  logs.entries.forEach(({ time, event, ...rest }) => console.log(`  ${time} ${event} ${JSON.stringify(rest)}`));
+  console.log(`  (full log: ${service}/logs)`);
 }
 
 main().catch((error) => {

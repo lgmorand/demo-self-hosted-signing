@@ -26,6 +26,7 @@ class KeyCache {
   async get() {
     if (this.entry && this.now() < this.entry.expiresAt) {
       this.hits += 1;
+      this.log('key_cache_hit', { kid: this.entry.kid, keyAgeSeconds: Math.round((this.now() - this.entry.loadedAt) / 1000) });
       return this.entry;
     }
     // Concurrent callers share a single release call.
@@ -36,6 +37,8 @@ class KeyCache {
   }
 
   async #refresh() {
+    const startedAt = this.now();
+    this.log('key_cache_miss', { reason: this.entry ? 'expired' : 'empty', action: 'releasing key from Key Vault' });
     try {
       const pem = await this.loadKey();
       const privateKey = crypto.createPrivateKey(pem);
@@ -53,10 +56,20 @@ class KeyCache {
         loadedAt,
         expiresAt: loadedAt + this.ttlMs,
       };
-      this.log('key_loaded', { kid, ttlSeconds: this.ttlMs / 1000 });
+      this.log('key_loaded', {
+        kid,
+        kty: jwk.kty,
+        crv: jwk.crv,
+        durationMs: loadedAt - startedAt,
+        ttlSeconds: this.ttlMs / 1000,
+        storedIn: 'process memory only',
+      });
       return this.entry;
     } catch (error) {
-      if (!this.entry) throw error;
+      if (!this.entry) {
+        this.log('key_load_failed', { error: error.message });
+        throw error;
+      }
       // Keep serving the previous key rather than failing every request during a Key Vault blip.
       this.entry.expiresAt = this.now() + this.staleRetryMs;
       this.log('key_refresh_failed_using_cached_key', { error: error.message });
