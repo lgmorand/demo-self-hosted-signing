@@ -61,3 +61,4 @@ Write-Host "  SSH       : $($state.sshCommand)"
 Write-Host ''
 Write-Host 'The VM is still installing Node.js and building the attestation helper (about 5 more minutes).'
 Write-Host "Then run:  node client/demo.js $($state.serviceUrl) --vault $($state.vaultName) --key $($state.keyName)"
+Write-Host "Or open the web UI in a browser: $($state.serviceUrl)/"

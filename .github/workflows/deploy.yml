@@ -126,6 +126,8 @@ jobs:
             echo "node client/demo.js $URL --vault $VAULT --key $KEY"
             echo '```'
             echo
+            echo "Or open the web UI in a browser: $URL/"
+            echo
             echo "Run this workflow again with **action = destroy** when you are done (the VM costs money)."
           } >> "$GITHUB_STEP_SUMMARY"
 

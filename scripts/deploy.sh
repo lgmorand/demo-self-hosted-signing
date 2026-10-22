@@ -48,3 +48,4 @@ echo "  SSH       : ssh -i $KEY_PATH azureuser@$IP"
 echo
 echo "The VM is still installing Node.js and building the attestation helper (about 5 more minutes)."
 echo "Then run:  node client/demo.js $URL --vault $VAULT --key $KEY"
+echo "Or open the web UI in a browser: $URL/"
