@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Key Vault SKR token service - demo</title>
+<style>
+  :root { --bg:#0f1720; --card:#17212c; --line:#2a3846; --fg:#e6edf3; --muted:#8aa0b4; --ok:#3fb950; --ko:#f85149; --accent:#4aa3ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui,Segoe UI,sans-serif; background:var(--bg); color:var(--fg); }
+  header { padding:14px 24px; background:#3b1d1d; border-bottom:2px solid var(--ko); font-weight:600; }
+  main { max-width:1200px; margin:0 auto; padding:20px; display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(480px,1fr)); }
+  section { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; }
+  section.wide { grid-column:1/-1; }
+  h1 { margin:0 0 4px; font-size:20px; } h2 { margin:0 0 10px; font-size:15px; }
+  p.hint { margin:0 0 10px; color:var(--muted); }
+  label { display:block; margin:8px 0 3px; color:var(--muted); font-size:12px; }
+  input, textarea { width:100%; background:#0c131b; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:7px 9px; font:13px ui-monospace,Consolas,monospace; }
+  input[type=checkbox] { width:auto; }
+  textarea { min-height:90px; resize:vertical; }
+  button { background:var(--accent); color:#04121f; border:0; border-radius:6px; padding:7px 13px; margin:8px 6px 0 0; font-weight:600; cursor:pointer; }
+  button.secondary { background:#2a3846; color:var(--fg); }
+  pre { margin:10px 0 0; padding:10px; background:#0c131b; border:1px solid var(--line); border-radius:6px; overflow:auto; max-height:300px; white-space:pre-wrap; word-break:break-all; font:12px ui-monospace,Consolas,monospace; }
+  #logs { max-height:340px; }
+  .log-line { display:block; } .log-key { color:#d2a8ff; } .log-token { color:#7ee787; } .log-http { color:var(--muted); } .log-bad { color:var(--ko); }
+  .status { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; font-weight:600; }
+  .s-ok { background:#12361c; color:var(--ok); } .s-ko { background:#3d1816; color:var(--ko); }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .row label { margin:8px 0 0; }
+</style>
+</head>
+<body>
+<header>DEMO ONLY - no support, not for production. Unauthenticated endpoints, plain HTTP.</header>
+<main>
+  <section class="wide">
+    <h1>Key Vault Secure Key Release - token service</h1>
+    <p class="hint">The service released the private key from Key Vault once, keeps it in memory and signs tokens locally. Every button below calls the service API; watch the log panel to see what happens.</p>
+    <div class="row">
+      <button id="btn-stats">Refresh stats</button>
+      <button id="btn-jwks" class="secondary">Show public key (JWKS)</button>
+      <span id="health"></span>
+    </div>
+    <pre id="out-info">Loading...</pre>
+  </section>
+
+  <section>
+    <h2>1. Issue a token <code>POST /token</code></h2>
+    <p class="hint">Signed with the in-memory key. No Key Vault call.</p>
+    <label for="sub">Subject (sub)</label>
+    <input id="sub" value="alice">
+    <label for="claims">Extra claims (JSON; reserved claims are ignored)</label>
+    <textarea id="claims">{ "role": "reader" }</textarea>
+    <button id="btn-issue">Issue token</button>
+    <pre id="out-issue">-</pre>
+  </section>
+
+  <section>
+    <h2>2. Verify a token <code>POST /verify</code> / <code>GET /protected</code></h2>
+    <p class="hint">Paste a token, or issue one first (it is filled in for you).</p>
+    <label for="token">Token</label>
+    <textarea id="token" spellcheck="false"></textarea>
+    <button id="btn-verify">POST /verify</button>
+    <button id="btn-protected" class="secondary">GET /protected</button>
+    <button id="btn-tamper" class="secondary">Tamper with the payload (sub = admin)</button>
+    <pre id="out-verify">-</pre>
+  </section>
+
+  <section class="wide">
+    <h2>Service log <code>GET /logs</code></h2>
+    <div class="row">
+      <label><input type="checkbox" id="live" checked> live</label>
+      <label><input type="checkbox" id="hide-http"> hide http_request</label>
+      <button id="btn-clear" class="secondary">Clear view</button>
+    </div>
+    <pre id="logs"></pre>
+  </section>
+</main>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const show = (id, value) => { $(id).textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2); };
+
+async function api(method, path, { body, token } = {}) {
+  const response = await fetch(path, {
+    method,
+    headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await response.text();
+  let json; try { json = JSON.parse(text); } catch { json = text; }
+  return { status: response.status, json };
+}
+const withStatus = ({ status, json }) => 'HTTP ' + status + '\n' + JSON.stringify(json, null, 2);
+
+function decodeJwt(token) {
+  try {
+    const [h, p] = token.split('.');
+    const dec = (s) => JSON.parse(atob(s.replace(/-/g, '+').replace(/_/g, '/')));
+    return { header: dec(h), payload: dec(p) };
+  } catch { return null; }
+}
+
+async function refreshInfo() {
+  const [stats, health] = await Promise.all([api('GET', '/stats'), api('GET', '/healthz')]);
+  const badge = $('health');
+  badge.className = 'status ' + (health.status === 200 ? 's-ok' : 's-ko');
+  badge.textContent = health.status === 200 ? 'service up' : 'service error';
+  show('out-info', stats.json);
+}
+
+$('btn-stats').onclick = refreshInfo;
+$('btn-jwks').onclick = async () => show('out-info', (await api('GET', '/.well-known/jwks.json')).json);
+
+$('btn-issue').onclick = async () => {
+  let claims;
+  try { claims = JSON.parse($('claims').value || '{}'); } catch { return show('out-issue', 'Extra claims is not valid JSON'); }
+  const result = await api('POST', '/token', { body: { sub: $('sub').value, claims } });
+  if (result.status === 200) {
+    $('token').value = result.json.token;
+    show('out-issue', 'HTTP 200\n' + JSON.stringify({ ...result.json, decoded: decodeJwt(result.json.token) }, null, 2));
+  } else show('out-issue', withStatus(result));
+  refreshInfo();
+};
+
+$('btn-verify').onclick = async () => show('out-verify', withStatus(await api('POST', '/verify', { body: { token: $('token').value.trim() } })));
+$('btn-protected').onclick = async () => show('out-verify', withStatus(await api('GET', '/protected', { token: $('token').value.trim() })));
+$('btn-tamper').onclick = () => {
+  const token = $('token').value.trim();
+  const parts = token.split('.');
+  const decoded = decodeJwt(token);
+  if (parts.length !== 3 || !decoded) return show('out-verify', 'Issue or paste a valid token first.');
+  const payload = btoa(JSON.stringify({ ...decoded.payload, sub: 'admin' })).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  $('token').value = parts[0] + '.' + payload + '.' + parts[2];
+  show('out-verify', 'Payload changed, signature kept. Now click POST /verify or GET /protected: it must be rejected.');
+};
+
+// Logs are rendered with textContent only (they contain caller-provided values such as "sub").
+let lastSeq = 0;
+function render(entry) {
+  if (entry.event === 'http_request' && $('hide-http').checked) return;
+  const { seq, time, event, ...rest } = entry;
+  const line = document.createElement('span');
+  const kind = /^(key_|skr_)/.test(event) ? 'log-key' : /^token_rejected|failed/.test(event) ? 'log-bad' : /^token_/.test(event) ? 'log-token' : 'log-http';
+  line.className = 'log-line ' + kind;
+  line.textContent = time.slice(11, 23) + ' ' + event + ' ' + JSON.stringify(rest);
+  $('logs').appendChild(line);
+}
+async function pollLogs() {
+  if (!$('live').checked) return;
+  const { json } = await api('GET', '/logs?limit=200&after=' + lastSeq);
+  if (!json.entries) return;
+  const box = $('logs');
+  const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 20;
+  json.entries.forEach((entry) => { lastSeq = Math.max(lastSeq, entry.seq); render(entry); });
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
+$('btn-clear').onclick = () => { $('logs').textContent = ''; };
+
+refreshInfo();
+pollLogs();
+setInterval(() => pollLogs().catch(() => {}), 2000);
+</script>
+</body>
+</html>

@@ -112,7 +112,23 @@ The script prints the exact command. The client:
 4. tampers with a token and shows it is rejected;
 5. prints `/stats`: 200 tokens signed, **1** key release call to Key Vault, then the key events from `/logs`.
 
-Useful endpoints on the service: `GET /healthz`, `GET /stats`, `GET /logs`, `GET /.well-known/jwks.json`,
+### Web UI
+
+The service also serves a single-page UI at its root: open `http://<vm-ip>:8080/` in a browser. It is same-origin
+(no CORS, no extra infrastructure, nothing to publish separately) and lets you:
+
+- see the service health, `/stats` (signed tokens vs key releases) and the public key (JWKS);
+- issue a token (`POST /token`) with a subject and extra claims, and inspect it;
+- verify it through the service (`POST /verify`, `GET /protected`), or tamper with the payload first
+  (`sub=admin`) to watch the signature check fail;
+- follow the live service logs (`GET /logs`).
+
+It is one static file (`app/public/index.html`, no dependencies, no build step) embedded into the VM by cloud-init.
+Same caveats as the API: HTTP only, no authentication, reachable only from `allowed_source_ip`.
+
+### Endpoints
+
+`GET /` (web UI), `GET /healthz`, `GET /stats`, `GET /logs`, `GET /.well-known/jwks.json`,
 `POST /token` (`{"sub":"alice","claims":{"role":"reader"}}`), `POST /verify` (`{"token":"..."}`),
 `GET /protected` (`Authorization: Bearer <token>`).
 
@@ -171,6 +187,7 @@ app/              Zero-dependency Node.js token service (+ unit tests: cd app &&
   lib/key-cache.js    In-memory key cache: single-flight refresh, TTL, stale-on-error
   lib/skr-key-provider.js  Calls the Secure Key Release helper
   lib/logger.js       Structured logger + ring buffer behind GET /logs
+  public/index.html   Single-page demo web UI served at GET /
 client/demo.js    Demo client (runs on your machine)
 infra/            Bicep template + cloud-init for the VM
 tools/build-skr.sh  Builds Microsoft's AzureAttestSKR helper (pinned commit)

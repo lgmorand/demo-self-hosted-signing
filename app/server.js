@@ -1,6 +1,8 @@
 'use strict';
 
 const http = require('node:http');
+const fs = require('node:fs');
+const nodePath = require('node:path');
 const crypto = require('node:crypto');
 const { sign, verify, JwtError } = require('./lib/jwt');
 const { KeyCache } = require('./lib/key-cache');
@@ -9,6 +11,7 @@ const { Logger } = require('./lib/logger');
 
 const RESERVED_CLAIMS = new Set(['iss', 'aud', 'sub', 'exp', 'iat', 'nbf', 'jti']);
 const MAX_BODY_BYTES = 16 * 1024;
+const UI_PATH = nodePath.join(__dirname, 'public', 'index.html');
 
 function readConfig(env = process.env) {
   const required = (name) => {
@@ -31,7 +34,8 @@ function readConfig(env = process.env) {
   };
 }
 
-function createApp({ keyCache, config, logger = new Logger() }) {
+function createApp({ keyCache, config, logger = new Logger(), uiPath = UI_PATH }) {
+  const uiHtml = fs.readFileSync(uiPath);
   const counters = { tokensIssued: 0, tokensVerified: 0, verificationFailures: 0 };
   const startedAt = Date.now();
 
@@ -78,6 +82,16 @@ function createApp({ keyCache, config, logger = new Logger() }) {
   };
 
   const routes = {
+    // Demo web UI (single static page, same origin as the API so no CORS is needed).
+    'GET /': async (req, res) => {
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+        'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'",
+      });
+      res.end(uiHtml);
+    },
     'GET /healthz': async (req, res) => sendJson(res, 200, { status: 'ok' }),
 
     // Recent log entries (secrets are never logged). ?limit=100&event=token_issued,key_loaded&after=<seq>

@@ -11,6 +11,10 @@ write_files:
     encoding: b64
     permissions: '0644'
     content: @@PACKAGE_JSON@@
+  - path: /opt/token-service/public/index.html
+    encoding: b64
+    permissions: '0644'
+    content: @@INDEX_HTML@@
   - path: /opt/token-service/lib/jwt.js
     encoding: b64
     permissions: '0644'

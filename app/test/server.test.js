@@ -32,7 +32,7 @@ async function start() {
     });
     return { status: response.status, json: await response.json() };
   };
-  return { call, loads: () => loads, close: () => new Promise((resolve) => server.close(resolve)) };
+  return { base, call, loads: () => loads, close: () => new Promise((resolve) => server.close(resolve)) };
 }
 
 test('issues tokens that verify against the published JWKS, with one key load', async (t) => {
@@ -105,6 +105,16 @@ test('GET /logs shows requests, key cache activity and token events, without sec
   const newer = (await app.call('GET', `/logs?after=${json.entries.at(-1).seq}`)).json;
   assert.ok(newer.entries.every((entry) => entry.seq > json.entries.at(-1).seq));
   assert.ok(!newer.entries.some((entry) => entry.path === '/logs'), '/logs requests are not logged');
+});
+
+test('serves the demo web UI on / with restrictive headers', async (t) => {
+  const app = await start();
+  t.after(app.close);
+  const response = await fetch(`${app.base}/`);
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type'), /text\/html/);
+  assert.match(response.headers.get('content-security-policy'), /default-src 'none'/);
+  assert.match(await response.text(), /Key Vault Secure Key Release/);
 });
 
 test('unknown routes return 404', async (t) => {
