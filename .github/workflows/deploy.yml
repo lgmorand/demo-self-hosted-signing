@@ -67,7 +67,7 @@ jobs:
       SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
       AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Validate inputs
         run: |
@@ -78,7 +78,7 @@ jobs:
 
       - name: Azure login (OIDC)
         if: env.AZURE_CLIENT_SECRET == ''
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -86,7 +86,7 @@ jobs:
 
       - name: Azure login (client secret)
         if: env.AZURE_CLIENT_SECRET != ''
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           creds: >-
             ${{ format('{{"tenantId":{0},"subscriptionId":{1},"clientId":{2},"clientSecret":{3}}}',
@@ -149,11 +149,11 @@ jobs:
       RESOURCE_GROUP: ${{ inputs.resource_group }}
       AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Azure login (OIDC)
         if: env.AZURE_CLIENT_SECRET == ''
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -161,7 +161,7 @@ jobs:
 
       - name: Azure login (client secret)
         if: env.AZURE_CLIENT_SECRET != ''
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           creds: >-
             ${{ format('{{"tenantId":{0},"subscriptionId":{1},"clientId":{2},"clientSecret":{3}}}',
