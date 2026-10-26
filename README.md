@@ -173,8 +173,13 @@ Repository secrets to create (Settings → Secrets and variables → Actions):
 | `AZURE_CLIENT_SECRET` | no | Only if you authenticate with a client secret instead of OIDC |
 | `SSH_PUBLIC_KEY` | no | Public key for the VM admin user (otherwise a throw-away key is generated and SSH is unavailable) |
 
-OIDC is recommended: add a federated credential on the app registration for this repository
-(`repo:<owner>/<repo>:ref:refs/heads/<branch>`), and leave `AZURE_CLIENT_SECRET` unset. The principal needs
+OIDC is recommended: add a federated credential on the app registration for this repository and branch,
+and leave `AZURE_CLIENT_SECRET` unset. Use issuer `https://token.actions.githubusercontent.com` and audience
+`api://AzureADTokenExchange`. The subject must exactly match the `subject claim` printed by the Azure login
+step, including any immutable owner/repository IDs (for example,
+`repo:<owner>@<owner-id>/<repo>@<repo-id>:ref:refs/heads/<branch>`). A mismatch causes `AADSTS700213`.
+Alternatively, set `AZURE_CLIENT_SECRET`; the workflow then uses client-secret authentication instead of OIDC.
+The principal needs
 **Owner** on the subscription (or Contributor + User Access Administrator) because the template creates role
 assignments. Run the workflow with your public IP in `allowed_source_ip`, then use the client command shown in the
 run summary. Run it again with `action = destroy` to delete everything and purge the vault.
