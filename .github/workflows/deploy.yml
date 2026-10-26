@@ -65,6 +65,7 @@ jobs:
       ALLOWED_SOURCE_IP: ${{ inputs.allowed_source_ip }}
       READER_OBJECT_ID: ${{ inputs.reader_object_id }}
       SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
     steps:
       - uses: actions/checkout@v4
 
@@ -75,12 +76,22 @@ jobs:
             exit 1
           fi
 
-      - uses: azure/login@v2
+      - name: Azure login (OIDC)
+        if: env.AZURE_CLIENT_SECRET == ''
+        uses: azure/login@v2
         with:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+
+      - name: Azure login (client secret)
+        if: env.AZURE_CLIENT_SECRET != ''
+        uses: azure/login@v2
+        with:
+          creds: >-
+            ${{ format('{{"tenantId":{0},"subscriptionId":{1},"clientId":{2},"clientSecret":{3}}}',
+                toJSON(secrets.AZURE_TENANT_ID), toJSON(secrets.AZURE_SUBSCRIPTION_ID),
+                toJSON(secrets.AZURE_CLIENT_ID), toJSON(secrets.AZURE_CLIENT_SECRET)) }}
 
       - name: Prepare SSH key
         run: |
@@ -136,15 +147,26 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RESOURCE_GROUP: ${{ inputs.resource_group }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
     steps:
       - uses: actions/checkout@v4
 
-      - uses: azure/login@v2
+      - name: Azure login (OIDC)
+        if: env.AZURE_CLIENT_SECRET == ''
+        uses: azure/login@v2
         with:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+
+      - name: Azure login (client secret)
+        if: env.AZURE_CLIENT_SECRET != ''
+        uses: azure/login@v2
+        with:
+          creds: >-
+            ${{ format('{{"tenantId":{0},"subscriptionId":{1},"clientId":{2},"clientSecret":{3}}}',
+                toJSON(secrets.AZURE_TENANT_ID), toJSON(secrets.AZURE_SUBSCRIPTION_ID),
+                toJSON(secrets.AZURE_CLIENT_ID), toJSON(secrets.AZURE_CLIENT_SECRET)) }}
 
       - name: Destroy and purge the vault
         run: bash ./scripts/destroy.sh "$RESOURCE_GROUP"
