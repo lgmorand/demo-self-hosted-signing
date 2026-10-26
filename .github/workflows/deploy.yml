@@ -66,7 +66,7 @@ jobs:
       READER_OBJECT_ID: ${{ inputs.reader_object_id }}
       SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Validate inputs
         run: |
@@ -75,7 +75,7 @@ jobs:
             exit 1
           fi
 
-      - uses: azure/login@v2
+      - uses: azure/login@v3
         with:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -137,9 +137,9 @@ jobs:
     env:
       RESOURCE_GROUP: ${{ inputs.resource_group }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: azure/login@v2
+      - uses: azure/login@v3
         with:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
